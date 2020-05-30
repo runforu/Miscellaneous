@@ -1,0 +1,12 @@
+Debug/
+X64/
+Release/
+build/
+*.obj
+*.exe
+*.pdf
+*.pch
+*.user
+FlappyBird/*.ini
+UpgradeLog.htm
+.vs/
