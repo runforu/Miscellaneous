@@ -151,6 +151,8 @@ void AsyncTask::WaitForComplete() {
         Lock lock(m_Mutex);
         m_Condition.wait(lock, [this] { return m_TaskQueue.empty() && m_RunningTasks == 0; });
     }
+    // Notify threads to exit by set m_StopRunning with true if no task is added to the pool ^_^.
+    m_StopRunning = true;
     // Invoke all waiting thread to exit loop.
     m_Condition.notify_all();
 
@@ -171,13 +173,16 @@ void Run(std::atomic_int& value) {
         static_cast<unsigned int>(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count()));
     int random = engine();
     value += random;
+    std::this_thread::sleep_for(std::chrono::milliseconds(random % 100));
     value -= random;
 }
 
 struct Functor {
-    Functor(std::atomic_int& value) : m_value(value) {}
+    Functor(std::atomic_int& value) : m_value(value) {
+    }
 
-    Functor(const Functor& f) : m_value(f.m_value) {}
+    Functor(const Functor& f) : m_value(f.m_value) {
+    }
 
     void operator()() {
         Run(m_value);
@@ -199,10 +204,6 @@ private:
     std::atomic_int& m_value;
 };
 
-void FuncInt(Functor& callable, std::atomic_int& value) {
-    callable.Method(value);
-}
-
 void NormalFunc(std::atomic_int& value) {
     Run(value);
 }
@@ -212,18 +213,28 @@ void Function() {
     Run(g_value);
 }
 
+// case: Idempotent
 void TCase0() {
+    auto start = std::chrono::system_clock::now();
+    auto sleep_time = 10000;
     {
         Utils::AsyncTask at;
-        at.AddTask(Function);
+        at.AddTask([sleep_time]() {
+            Function();
+            std::this_thread::sleep_for(std::chrono::milliseconds(sleep_time));
+            Run(g_value);
+        });
         at.WaitForComplete();
         at.WaitForComplete();
         at.WaitForComplete();
         at.WaitForComplete();
     }
     assert(g_value.load() == 0);
+    auto elapse = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - start).count();
+    assert(elapse >= sleep_time);
 }
 
+// case: functor
 void TCase1() {
     std::atomic_int value = 0;
     {
@@ -233,6 +244,7 @@ void TCase1() {
     assert(value.load() == 0);
 }
 
+// case: normal function
 void TCase2() {
     {
         Utils::AsyncTask at;
@@ -241,36 +253,23 @@ void TCase2() {
     assert(g_value.load() == 0);
 }
 
+// case: std::bind (deprecated since C++ 17, to be removed)
 void TCase3() {
     std::atomic_int value = 0;
     {
         Utils::AsyncTask at;
         at.AddTask(std::bind(NormalFunc, std::ref(value)));
-    }
-    assert(value.load() == 0);
-}
-
-void TCase4() {
-    std::atomic_int value = 0;
-    {
-        Utils::AsyncTask at;
         Functor functor{value};
+        at.AddTask(std::bind(static_cast<void (Functor::*)()>(&Functor::operator()), &functor));
+        at.AddTask(std::bind(static_cast<void (Functor::*)()>(&Functor::Method), &functor));
+        at.AddTask(std::bind(static_cast<void (Functor::*)(std::atomic_int&)>(&Functor::operator()), &functor, std::ref(value)));
         at.AddTask(std::bind(static_cast<void (Functor::*)(std::atomic_int&)>(&Functor::Method), &functor, std::ref(value)));
     }
     assert(value.load() == 0);
 }
 
-void TCase5() {
-    std::atomic_int value = 0;
-    {
-        Utils::AsyncTask at;
-        Functor functor{value};
-        at.AddTask(std::bind(static_cast<void (Functor::*)()>(&Functor::Method), &functor));
-    }
-    assert(value.load() == 0);
-}
-
-void TCase6() {
+// case: lambda
+void TCase4() {
     std::atomic_int value = 0;
     {
         Utils::AsyncTask at;
@@ -282,106 +281,140 @@ void TCase6() {
     assert(value.load() == 0);
 }
 
-void TCase7() {
+// case: functionality (a little intricate)
+void TCase6() {
     std::atomic_int value = 0;
     {
-        Utils::AsyncTask at;
-        for (int i = 0; i < 10; ++i) {
-            at.AddTask([&value, &at]() {
-                Functor functor{value};
-                functor.operator()(value);
-                at.AddTask(functor);
-                at.AddTask(std::bind(NormalFunc, std::ref(value)));
-                at.AddTask([&value]() {
-                    Functor functor{value};
-                    functor.Method();
-                });
-                at.AddTask([&value]() {
-                    Functor functor{value};
-                    functor.Method(value);
-                });
-                for (int i = 0; i < 10; ++i) {
-                    for (int i = 0; i < 10; ++i) {
-                        for (int i = 0; i < 10; ++i) {
-                            for (int i = 0; i < 10; ++i) {
-                                functor.operator()(value);
-                                at.AddTask(functor);
-                                at.AddTask(std::bind(NormalFunc, std::ref(value)));
-                                at.AddTask([&value]() {
-                                    Functor functor{value};
-                                    functor.Method();
-                                });
-                                at.AddTask([&value]() {
-                                    Functor functor{value};
-                                    functor.Method(value);
-                                });
-                            }
-                            functor.operator()(value);
-                            at.AddTask(functor);
-                            at.AddTask(std::bind(NormalFunc, std::ref(value)));
-                            at.AddTask([&value]() {
-                                Functor functor{value};
-                                functor.Method();
+        auto lambda_invoke = [](std::atomic_int& value) {
+            Functor functor{value};
+            functor();
+            functor.operator()(value);
+            functor.Method();
+            functor.Method(value);
+            NormalFunc(value);
+            Function();
+        };
+
+        auto lambda_add_invoke = [&lambda_invoke](Utils::AsyncTask& at, std::atomic_int& value, int times) {
+            lambda_invoke(value);
+            int tmp = times;
+            while (times-- > 0) {
+                at.AddTask([&lambda_invoke, &at, &value, times]() {
+                    lambda_invoke(value);
+                    int tmp = times;
+                    while (tmp-- > 0) {
+                        at.AddTask([&lambda_invoke, &at, &value, times]() {
+                            lambda_invoke(value);
+                            at.AddTask([&lambda_invoke, &at, &value, times]() {
+                                lambda_invoke(value);
+                                int tmp = times;
+                                while (tmp-- > 0) {
+                                    at.AddTask([&lambda_invoke, &at, &value, times]() {
+                                        lambda_invoke(value);
+                                        int tmp = times;
+                                        while (tmp-- > 0) {
+                                            at.AddTask([&lambda_invoke, &at, &value, times]() {
+                                                lambda_invoke(value);
+                                                int tmp = times;
+                                                while (tmp-- > 0) {
+                                                    at.AddTask([&lambda_invoke, &at, &value, times]() {
+                                                        lambda_invoke(value);
+                                                        int tmp = times;
+                                                        while (tmp-- > 0) {
+                                                            at.AddTask([&lambda_invoke, &at, &value, times]() {
+                                                                lambda_invoke(value);
+                                                                int tmp = times;
+                                                                while (tmp-- > 0) {
+                                                                    at.AddTask([&lambda_invoke, &at, &value, times]() {
+                                                                        lambda_invoke(value);
+                                                                        int tmp = times;
+                                                                        while (tmp-- > 0) {
+                                                                            at.AddTask([&lambda_invoke, &at, &value, times]() {
+                                                                                lambda_invoke(value);
+                                                                                int tmp = times;
+                                                                                while (tmp-- > 0) {
+                                                                                    at.AddTask(
+                                                                                        [&lambda_invoke, &at, &value, times]() { lambda_invoke(value); });
+                                                                                }
+                                                                                lambda_invoke(value);
+                                                                            });
+                                                                        }
+                                                                        lambda_invoke(value);
+                                                                    });
+                                                                }
+                                                                lambda_invoke(value);
+                                                            });
+                                                        }
+                                                        lambda_invoke(value);
+                                                    });
+                                                }
+                                                lambda_invoke(value);
+                                            });
+                                        }
+                                        lambda_invoke(value);
+                                    });
+                                }
+                                lambda_invoke(value);
                             });
-                            at.AddTask([&value]() {
-                                Functor functor{value};
-                                functor.Method(value);
-                            });
-                        }
-                        functor.operator()(value);
-                        at.AddTask(functor);
-                        at.AddTask(std::bind(NormalFunc, std::ref(value)));
-                        at.AddTask([&value]() {
-                            Functor functor{value};
-                            functor.Method();
-                        });
-                        at.AddTask([&value]() {
-                            Functor functor{value};
-                            functor.Method(value);
+                            lambda_invoke(value);
                         });
                     }
-                    functor.operator()(value);
-                    at.AddTask(functor);
-                    at.AddTask(std::bind(NormalFunc, std::ref(value)));
-                    at.AddTask([&value]() {
-                        Functor functor{value};
-                        functor.Method();
-                    });
-                    at.AddTask([&value]() {
-                        Functor functor{value};
-                        functor.Method(value);
-                    });
-                }
-                functor.operator()(value);
-                at.AddTask(functor);
-                at.AddTask(std::bind(NormalFunc, std::ref(value)));
-                at.AddTask([&value]() {
-                    Functor functor{value};
-                    functor.Method();
+                    lambda_invoke(value);
                 });
-                at.AddTask([&value]() {
-                    Functor functor{value};
-                    functor.Method(value);
-                });
-            });
+            }
+            lambda_invoke(value);
+        };
 
-            Functor functor{value};
-            at.AddTask(functor);
-            at.AddTask(std::bind(NormalFunc, std::ref(value)));
-            at.AddTask([&value]() {
-                Functor functor{value};
-                functor.Method();
-            });
-            at.AddTask([&value]() {
-                Functor functor{value};
-                functor.Method(value);
-            });
-        }
+        Utils::AsyncTask at;
+        at.AddTask([&lambda_add_invoke, &at, &value]() { lambda_add_invoke(at, value, 2); });
     }
     assert(value.load() == 0);
+    assert(g_value.load() == 0);
 }
+
+// case: Performance
+#pragma warning(disable : 4996 4244)
+void TCase7() {
+    auto lambda = [](int times, int loop) {
+        constexpr int PI_LEN = 1024;
+        char* result_pi = new char[times * PI_LEN]{};
+        {
+            auto calculate_pi = [](char* pi) {
+                int a = 1e4, c = 3e3, b = c, d = 0, e = 0, f[3000], g = 1, h = 0;
+                do {
+                    if (!--b) {
+                        sprintf(pi, "%04d", e + d / a), e = d % a, h = b = c -= 15;
+                        pi += 4;
+                    } else {
+                        f[b] = (d = d / g * b + a * (h ? f[b] : 2e3)) % (g = b * 2 - 1);
+                    }
+                } while (b);
+            };
+            Utils::AsyncTask at;
+            for (auto i = 0; i < times; ++i) {
+                at.AddTask([&calculate_pi, buf{result_pi + i * PI_LEN}, loop]() {
+                    for (auto i = 0; i < loop; i++) {
+                        calculate_pi(buf);
+                    }
+                });
+            }
+        }
+        for (auto i = 1; i < times; ++i) {
+            assert(memcmp(result_pi, result_pi + i * PI_LEN, PI_LEN) == 0);
+        }
+        delete result_pi;
+    };
+    constexpr int LOOP = 2048;
+    for (auto i = 0; i < 32; ++i) {
+        auto start = std::chrono::system_clock::now();
+        lambda(i, LOOP);
+        auto elapse = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - start).count();
+        std::cout << "Run " << i << " * " << LOOP << " tiems of PI computing takes: " << elapse << std::endl;
+    }
+}
+
 }  // namespace AsynTask_T
 
 void AsynTask_Test() {
-    UT_Case_ALL(AsynTask_T);
+    AsynTask_T::TCase6();  // UT_Case_ALL(AsynTask_T);
 }

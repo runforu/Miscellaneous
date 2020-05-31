@@ -1,7 +1,6 @@
 #include <iostream>
 #include "Common.h"
 
-
 int main() {
     Test(CPolymorphism);
     Test(CommitRollback);
