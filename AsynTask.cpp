@@ -285,88 +285,144 @@ void TCase4() {
 void TCase6() {
     std::atomic_int value = 0;
     {
-        auto lambda_invoke = [](std::atomic_int& value) {
-            Functor functor{value};
-            functor();
-            functor.operator()(value);
-            functor.Method();
-            functor.Method(value);
-            NormalFunc(value);
-            Function();
-        };
+        auto test_task = [](Utils::AsyncTask& at, std::atomic_int& value, int times) {
+            static auto worker = [](std::atomic_int& value) {
+                Functor functor{value};
+                functor();
+                functor.operator()(value);
+                functor.Method();
+                functor.Method(value);
+                NormalFunc(value);
+                Function();
+            };
 
-        auto lambda_add_invoke = [&lambda_invoke](Utils::AsyncTask& at, std::atomic_int& value, int times) {
-            lambda_invoke(value);
-            int tmp = times;
-            while (times-- > 0) {
-                at.AddTask([&lambda_invoke, &at, &value, times]() {
-                    lambda_invoke(value);
-                    int tmp = times;
-                    while (tmp-- > 0) {
-                        at.AddTask([&lambda_invoke, &at, &value, times]() {
-                            lambda_invoke(value);
-                            at.AddTask([&lambda_invoke, &at, &value, times]() {
-                                lambda_invoke(value);
-                                int tmp = times;
-                                while (tmp-- > 0) {
-                                    at.AddTask([&lambda_invoke, &at, &value, times]() {
-                                        lambda_invoke(value);
-                                        int tmp = times;
-                                        while (tmp-- > 0) {
-                                            at.AddTask([&lambda_invoke, &at, &value, times]() {
-                                                lambda_invoke(value);
-                                                int tmp = times;
-                                                while (tmp-- > 0) {
-                                                    at.AddTask([&lambda_invoke, &at, &value, times]() {
-                                                        lambda_invoke(value);
-                                                        int tmp = times;
-                                                        while (tmp-- > 0) {
-                                                            at.AddTask([&lambda_invoke, &at, &value, times]() {
-                                                                lambda_invoke(value);
-                                                                int tmp = times;
-                                                                while (tmp-- > 0) {
-                                                                    at.AddTask([&lambda_invoke, &at, &value, times]() {
-                                                                        lambda_invoke(value);
-                                                                        int tmp = times;
-                                                                        while (tmp-- > 0) {
-                                                                            at.AddTask([&lambda_invoke, &at, &value, times]() {
-                                                                                lambda_invoke(value);
-                                                                                int tmp = times;
-                                                                                while (tmp-- > 0) {
-                                                                                    at.AddTask(
-                                                                                        [&lambda_invoke, &at, &value, times]() { lambda_invoke(value); });
-                                                                                }
-                                                                                lambda_invoke(value);
-                                                                            });
-                                                                        }
-                                                                        lambda_invoke(value);
-                                                                    });
-                                                                }
-                                                                lambda_invoke(value);
-                                                            });
-                                                        }
-                                                        lambda_invoke(value);
-                                                    });
-                                                }
-                                                lambda_invoke(value);
-                                            });
-                                        }
-                                        lambda_invoke(value);
-                                    });
-                                }
-                                lambda_invoke(value);
-                            });
-                            lambda_invoke(value);
-                        });
-                    }
-                    lambda_invoke(value);
-                });
-            }
-            lambda_invoke(value);
+            static auto lambda0 = [&at, &value, times]() { at.AddTask([&at, &value, times]() { worker(value); }); };
+
+            static auto lambda1 = [&at, &value, times]() {
+                worker(value);
+                int tmp = times;
+                while (tmp-- > 0) {
+                    at.AddTask(lambda0);
+                }
+                worker(value);
+            };
+            static auto lambda2 = [&at, &value, times]() {
+                worker(value);
+                int tmp = times;
+                while (tmp-- > 0) {
+                    at.AddTask(lambda1);
+                }
+                worker(value);
+            };
+            static auto lambda3 = [&at, &value, times]() {
+                worker(value);
+                int tmp = times;
+                while (tmp-- > 0) {
+                    at.AddTask(lambda2);
+                }
+                worker(value);
+            };
+            static auto lambda4 = [&at, &value, times]() {
+                worker(value);
+                int tmp = times;
+                while (tmp-- > 0) {
+                    at.AddTask(lambda3);
+                }
+                worker(value);
+            };
+            static auto lambda5 = [&at, &value, times]() {
+                worker(value);
+                int tmp = times;
+                while (tmp-- > 0) {
+                    at.AddTask(lambda4);
+                }
+                worker(value);
+            };
+            static auto lambda6 = [&at, &value, times]() {
+                worker(value);
+                int tmp = times;
+                while (tmp-- > 0) {
+                    at.AddTask(lambda5);
+                }
+                worker(value);
+            };
+            static auto lambda7 = [&at, &value, times]() {
+                worker(value);
+                int tmp = times;
+                while (tmp-- > 0) {
+                    at.AddTask(lambda6);
+                }
+                worker(value);
+            };
+            static auto lambda8 = [&at, &value, times]() {
+                worker(value);
+                int tmp = times;
+                while (tmp-- > 0) {
+                    at.AddTask(lambda7);
+                }
+                worker(value);
+            };
+            static auto lambda9 = [&at, &value, times]() {
+                worker(value);
+                int tmp = times;
+                while (tmp-- > 0) {
+                    at.AddTask(lambda8);
+                }
+                worker(value);
+            };
+
+            lambda9();
         };
 
         Utils::AsyncTask at;
-        at.AddTask([&lambda_add_invoke, &at, &value]() { lambda_add_invoke(at, value, 2); });
+        at.AddTask([&test_task, &at, &value]() { test_task(at, value, 2); });
+    }
+    assert(value.load() == 0);
+    assert(g_value.load() == 0);
+}
+
+// case: functionality (a little intricate)
+void TCase7() {
+    std::atomic_int value = 0;
+    {
+        auto test_task = [](Utils::AsyncTask& at, std::atomic_int& value, int times) {
+            static auto worker = [](std::atomic_int& value) {
+                Functor functor{value};
+                functor();
+                functor.operator()(value);
+                functor.Method();
+                functor.Method(value);
+                NormalFunc(value);
+                Function();
+            };
+
+            static auto lambda0 = [&at, &value, times]() { at.AddTask([&at, &value, times]() { worker(value); }); };
+
+#define DEF_LAMBDA(at, value, times, num, prev)        \
+    static auto lambda##num = [&at, &value, times]() { \
+        worker(value);                                 \
+        int tmp = times;                               \
+        while (tmp-- > 0) {                            \
+            at.AddTask(lambda##prev);                  \
+        }                                              \
+        worker(value);                                 \
+    };
+
+            DEF_LAMBDA(at, value, times, 1, 0);
+            DEF_LAMBDA(at, value, times, 2, 1);
+            DEF_LAMBDA(at, value, times, 3, 2);
+            DEF_LAMBDA(at, value, times, 4, 3);
+            DEF_LAMBDA(at, value, times, 5, 4);
+            DEF_LAMBDA(at, value, times, 6, 5);
+            DEF_LAMBDA(at, value, times, 7, 6);
+            DEF_LAMBDA(at, value, times, 8, 7);
+            DEF_LAMBDA(at, value, times, 9, 8);
+
+            lambda9();
+        };
+
+        Utils::AsyncTask at;
+        at.AddTask([&test_task, &at, &value]() { test_task(at, value, 2); });
     }
     assert(value.load() == 0);
     assert(g_value.load() == 0);
@@ -374,7 +430,7 @@ void TCase6() {
 
 // case: Performance
 #pragma warning(disable : 4996 4244)
-void TCase7() {
+void TCase8() {
     auto lambda = [](int times, int loop) {
         constexpr int PI_LEN = 1024;
         char* result_pi = new char[times * PI_LEN]{};
@@ -416,5 +472,5 @@ void TCase7() {
 }  // namespace AsynTask_T
 
 void AsynTask_Test() {
-    AsynTask_T::TCase6();  // UT_Case_ALL(AsynTask_T);
+    UT_Case_ALL(AsynTask_T);
 }

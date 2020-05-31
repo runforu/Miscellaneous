@@ -7,7 +7,8 @@
 #include "Common.h"
 
 struct Operator_ {
-    Operator_(int t, int v) : type(t), value(v) {}
+    Operator_(int t, int v) : type(t), value(v) {
+    }
     int type;
     int value;
 };
@@ -18,7 +19,8 @@ private:
     std::vector<std::vector<Operator_> *> transactions_;
 
 public:
-    Solution() {}
+    Solution() {
+    }
 
     void push(int value) {
         data_.push_back(value);

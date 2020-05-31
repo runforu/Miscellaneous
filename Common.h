@@ -7,7 +7,7 @@
 
 #define TCase(seq, domain) domain::##TCase##seq
 
-#define UT_Case(seq, domain)         \
+#define UT_Case(seq, domain)          \
     __if_exists(TCase(seq, domain)) { \
         TCase(seq, domain)();         \
     }
