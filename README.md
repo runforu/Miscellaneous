@@ -1,14 +1,23 @@
-# CodeSnippet
-**A collection of my code snippet**
+# Miscellaneous C++ code
+**A miscellaneous collection of my C++ code snippet**
 <br/>
 
 <br/>
 
-* ### CPolymorphism.c
+* ### AsynTask.cpp
+- A util tool to implement multi-threading pool.
+
+* ### Iterable.cpp
+- A util tool to wrap a existing class to be callable in range loop.
+
+* ### CPolymorphism.cpp
 - Simple implementation of how C language simulates C++ polymorphism
 
 * ### CommitRollback.cpp
 - A implementation of commit and rollback to add values to vector supporting nested commit/rollback
 
-* ### AsynTask.cpp
-- A implementation of multi-threading pool.
+
+
+* ### RangeLoop.cpp
+- A implementation of range loop to test concept of ADL (Argument-dependent lookup) on begin/end.
+
